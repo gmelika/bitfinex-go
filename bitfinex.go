@@ -11,11 +11,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,6 +34,7 @@ type API struct {
 	APIKey    string
 	APISecret string
 	client    *http.Client
+	nonce     uint64
 }
 
 // ErrorMessage ...
@@ -209,8 +211,13 @@ func New(key, secret string) (api *API) {
 		APIKey:    key,
 		APISecret: secret,
 		client:    client,
+		nonce:     uint64(time.Now().UnixNano()),
 	}
 	return api
+}
+
+func (api *API) getNonce() string {
+	return fmt.Sprintf("%d", atomic.AddUint64(&api.nonce, 1))
 }
 
 ///////////////////////////////////////
@@ -270,7 +277,7 @@ func (api *API) Stats(symbol string) (stats Stats, err error) {
 func (api *API) Orderbook(symbol string, limitBids, limitAsks, group int) (orderbook Orderbook, err error) {
 	symbol = strings.ToLower(symbol)
 
-	body, err := api.get("/v1/book/" + symbol + "?limit_bids=" + strconv.Itoa(limitBids) + "&limit_asks=" + strconv.Itoa(limitAsks) + "&group=" + strconv.Itoa(group))
+	body, err := api.get(fmt.Sprintf("/v1/book/%s?limit_bids=%d&limit_asks=%d&group=%d", symbol, limitBids, limitAsks, group))
 	if err != nil {
 		return
 	}
@@ -287,7 +294,7 @@ func (api *API) Orderbook(symbol string, limitBids, limitAsks, group int) (order
 func (api *API) Lendbook(currency string, limitBids, limitAsks int) (lendbook Lendbook, err error) {
 	currency = strings.ToLower(currency)
 
-	body, err := api.get("/v1/lendbook/" + currency + "?limit_bids=" + strconv.Itoa(limitBids) + "&limit_asks=" + strconv.Itoa(limitAsks))
+	body, err := api.get(fmt.Sprintf("/v1/lendbook/%s?limit_bids=%d&limit_asks=%d", currency, limitBids, limitAsks))
 	if err != nil {
 		return
 	}
@@ -321,7 +328,7 @@ func (api *API) WalletBalances() (wallet WalletBalances, err error) {
 		Nonce string `json:"nonce"`
 	}{
 		"/v1/balances",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 	}
 
 	body, err := api.post(request.URL, request)
@@ -357,7 +364,7 @@ func (api *API) WalletBalances() (wallet WalletBalances, err error) {
 func (api *API) Trades(symbol string, timestamp string, limitTrades int) (trades Trades, err error) {
 	symbol = strings.ToLower(symbol)
 
-	body, err := api.get("/v1/trades/" + symbol + "?timestamp=" + timestamp + "&limit_trades=" + strconv.Itoa(limitTrades))
+	body, err := api.get(fmt.Sprintf("/v1/trades/%s?timestamp=%s&limit_trades=%d", symbol, timestamp, limitTrades))
 	if err != nil {
 		return nil, errors.New("API.Trades: body: " + string(body) + " err: " + err.Error())
 	}
@@ -388,7 +395,7 @@ func (api *API) MyTrades(symbol string, timestamp string, limitTrades int) (mytr
 		LimitTrades int    `json:"limit_trades"`
 	}{
 		URL:         "/v1/mytrades",
-		Nonce:       strconv.FormatInt(time.Now().UnixNano(), 10),
+		Nonce:       api.getNonce(),
 		Symbol:      symbol,
 		Timestamp:   timestamp,
 		LimitTrades: limitTrades,
@@ -420,7 +427,7 @@ func (api *API) ActiveOrders() (orders Orders, err error) {
 		Nonce string `json:"nonce"`
 	}{
 		"/v1/orders",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 	}
 
 	body, err := api.post(request.URL, request)
@@ -451,7 +458,7 @@ func (api *API) OrderStatus(id int) (order OrderStatus, err error) {
 		OrderID int    `json:"order_id"`
 	}{
 		"/v1/order/status",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 		id,
 	}
 
@@ -483,7 +490,7 @@ func (api *API) CancelOrder(id int) (err error) {
 		OfferID int    `json:"order_id"`
 	}{
 		"/v1/order/cancel",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 		id,
 	}
 
@@ -524,7 +531,7 @@ func (api *API) CancelOffer(id int) (err error) {
 		OfferID int    `json:"offer_id"`
 	}{
 		"/v1/offer/cancel",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 		id,
 	}
 
@@ -564,7 +571,7 @@ func (api *API) ActiveCredits() (credits Credits, err error) {
 		Nonce string `json:"nonce"`
 	}{
 		"/v1/credits",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 	}
 
 	body, err := api.post(request.URL, request)
@@ -594,7 +601,7 @@ func (api *API) ActiveOffers() (offers Offers, err error) {
 		Nonce string `json:"nonce"`
 	}{
 		"/v1/offers",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 	}
 
 	body, err := api.post(request.URL, request)
@@ -637,7 +644,7 @@ func (api *API) NewOffer(currency string, amount, rate float64, period int, dire
 		Direction string  `json:"direction"`
 	}{
 		"/v1/offer/new",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 		currency,
 		amount,
 		rate,
@@ -677,7 +684,7 @@ func (api *API) NewOrder(currency string, amount, price float64, exchange, side,
 		Type     string  `json:"type"`
 	}{
 		"/v1/order/new",
-		strconv.FormatInt(time.Now().UnixNano(), 10),
+		api.getNonce(),
 		currency,
 		amount,
 		price,
